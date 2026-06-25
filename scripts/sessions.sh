@@ -19,6 +19,7 @@ opencode_db_sessions() {
       replace(coalesce(title,''), char(10), ' '),
       coalesce(directory,''),
       coalesce(path,''),
+      coalesce(parent_id,''),
       cast(coalesce(time_updated, 0) as integer),
       cast(coalesce(time_created, 0) as integer),
       cast(coalesce(time_archived, 0) as integer),
@@ -31,8 +32,8 @@ opencode_db_sessions() {
   " | awk -F'\t' -v now="$now" -v stale_min="$stale" -v busy_min="$busy" -v background_min="$background" '
     BEGIN { OFS="\t" }
     {
-      updated = ($5 ~ /^[0-9]+$/ ? $5 : 0)
-      archived = ($7 ~ /^[0-9]+$/ ? $7 : 0)
+      updated = ($6 ~ /^[0-9]+$/ ? $6 : 0)
+      archived = ($8 ~ /^[0-9]+$/ ? $8 : 0)
       if (updated > 1000000000000) updated = int(updated / 1000)
       if (archived > 1000000000000) archived = int(archived / 1000)
       age = (updated > 0 ? int((now - updated) / 60) : -1)
@@ -47,7 +48,7 @@ opencode_db_sessions() {
         status = "stale"
       }
 
-      print "db", $1, $2, $3, $4, status, updated, age, "0", "", "", "", $8, $9, archived
+      print "db", $1, $2, $3, $4, status, updated, age, "0", "", "", "", $9, $10, archived, $5
     }
   '
 }
@@ -81,7 +82,7 @@ opencode_tmux_sessions() {
         }
 
         if (command ~ /(^|\/)(opencode)$/ || command ~ /^opencode$/ || title ~ /opencode/ || proc ~ /(^|[[:space:]\/])opencode([[:space:]]|$)/) {
-          print "tmux", session_id, "", $6, "", "attached", 0, 0, "1", $3, $2, $1, "", "", 0
+          print "tmux", session_id, "", $6, "", "attached", 0, 0, "1", $3, $2, $1, "", "", 0, ""
         }
       }
     '
@@ -95,31 +96,42 @@ opencode_merge_sessions() {
   opencode_db_sessions >"$tmp_db" || true
   opencode_tmux_sessions >"$tmp_tmux" || true
 
-  awk -F'\t' 'BEGIN { OFS="\t" } $1=="db" {
-    key = $4
-    if (!(key in seen)) {
-      seen[key] = $2
-      print key, $2
-    }
-  }' "$tmp_db" >"$tmp_db_idx"
+  awk -F'\t' 'BEGIN { OFS="\t" } $1=="db" { key = $4; if (!(key in seen)) { seen[key] = $2; print key, $2 } }' "$tmp_db" >"$tmp_db_idx"
 
   awk -F'\t' -v db="$tmp_db" -v idx="$tmp_db_idx" '
     BEGIN {
       OFS="\t"
       while ((getline line < db) > 0) {
         split(line, f, "\t")
-        dbid[f[2]] = line
-        if (f[4] != "" && !(f[4] in dirLine)) {
-          dirLine[f[4]] = line
-        }
+        raw[f[2]] = line
+        parent[f[2]] = f[16]
       }
       close(db)
-
       while ((getline line < idx) > 0) {
         split(line, f, "\t")
         pathId[f[1]] = f[2]
       }
       close(idx)
+    }
+    function root_id(id, r) {
+      r = id
+      while (parent[r] != "" && parent[r] != r && (parent[r] in raw)) r = parent[r]
+      return r
+    }
+    function priority(status) {
+      if (status == "attached") return 6
+      if (status == "busy") return 5
+      if (status == "background") return 4
+      if (status == "idle") return 3
+      if (status == "stale") return 2
+      if (status == "archived") return 1
+      return 0
+    }
+    function merge_status(a, b) { return (priority(b) > priority(a) ? b : a) }
+    function add_summary(root, status) {
+      if (summary[root] == "") summary[root] = status
+      else summary[root] = summary[root] "," status
+      child_count[root]++
     }
     {
       tmuxId = $2
@@ -127,37 +139,66 @@ opencode_merge_sessions() {
       pane = $10
       win = $11
       sess = $12
-      if (tmuxId != "" && (tmuxId in dbid)) {
+      if (tmuxId != "" && (tmuxId in raw)) {
         id = tmuxId
-        split(dbid[id], base, "\t")
-        base[6] = "attached"
-        base[9] = "1"
-        base[10] = pane
-        base[11] = win
-        base[12] = sess
-        line = base[1]
-        for (i = 2; i <= 15; i++) line = line OFS base[i]
-        print line
-        attached[id] = 1
       } else if (path in pathId) {
         id = pathId[path]
-        split(dbid[id], base, "\t")
-        base[6] = "attached"
-        base[9] = "1"
-        base[10] = pane
-        base[11] = win
-        base[12] = sess
-        line = base[1]
-        for (i = 2; i <= 15; i++) line = line OFS base[i]
-        print line
-        attached[id] = 1
       } else {
-        print "tmux-only", "pane:" pane, "Active tmux pane", path, path, "attached", 0, 0, "1", pane, win, sess, "", "", 0
+        print "tmux-only", "pane:" pane, "Active tmux pane", path, path, "attached", 0, 0, "1", pane, win, sess, "", "", 0, "", 0, "", "tmux-only"
+        next
+      }
+
+      split(raw[id], f, "\t")
+      root = root_id(id)
+      if (id == root) {
+        f[6] = "attached"
+        f[9] = "1"
+        f[10] = pane
+        f[11] = win
+        f[12] = sess
+        raw[id] = f[1]
+        for (i = 2; i <= 16; i++) raw[id] = raw[id] OFS f[i]
+        attached[root] = 1
+      } else {
+        child_status[id] = "attached"
+        child_pane[id] = pane
+        child_win[id] = win
+        child_sess[id] = sess
       }
     }
     END {
-      for (id in dbid) {
-        if (!(id in attached)) print dbid[id]
+      for (id in raw) {
+        root = root_id(id)
+        if (root != id) continue
+        split(raw[id], f, "\t")
+        status = f[6]
+        pane = f[10]
+        win = f[11]
+        sess = f[12]
+        summary[root] = ""
+        child_count[root] = 0
+        for (child in parent) {
+          if (parent[child] != id) continue
+          add_summary(root, (child_status[child] == "" ? "idle" : child_status[child]))
+          status = merge_status(status, (child_status[child] == "" ? "idle" : child_status[child]))
+          if (child_status[child] == "attached") {
+            if (pane == "") pane = child_pane[child]
+            if (win == "") win = child_win[child]
+            if (sess == "") sess = child_sess[child]
+          }
+        }
+        if (attached[root]) status = "attached"
+        f[6] = status
+        f[9] = (status == "attached" ? "1" : f[9])
+        f[10] = pane
+        f[11] = win
+        f[12] = sess
+        f[17] = child_count[root] + 0
+        f[18] = summary[root]
+        f[19] = root
+        line = f[1]
+        for (i = 2; i <= 19; i++) line = line OFS f[i]
+        print line
       }
     }
   ' "$tmp_tmux" | sort -t $'\t' -k7,7nr -k2,2

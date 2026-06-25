@@ -24,6 +24,7 @@ That gives you one session browser for:
 - status segment for `status-left` or `status-right`
 - `fzf` support when available
 - shell-only implementation with no `jq` dependency
+- collapses opencode orchestrator/subagent trees under the root session
 
 ## Requirements
 
@@ -38,7 +39,7 @@ That gives you one session browser for:
 Add this to your `~/.tmux.conf`:
 
 ```tmux
-set -g @plugin 'grafik/tmux-opencode-plugin'
+set -g @plugin 'CoderMungan/tmux-opencode-plugin'
 run '~/.tmux/plugins/tpm/tpm'
 ```
 
@@ -122,6 +123,13 @@ When you open the popup:
 - if `fzf` is installed, you get fuzzy search
 - otherwise, you get a numbered fallback menu
 
+For orchestrator/multiagent workflows, child/subagent sessions are folded into their root parent session using `session.parent_id`:
+
+- child sessions do not appear as separate top-level rows
+- the visible row represents the root/orchestrator session
+- attached tmux panes for child sessions are mapped back onto the parent row when possible
+- selecting the row always resumes/jumps with the parent session id
+
 Selecting a session does one of two things:
 
 1. if that session is already attached to a tmux pane, the plugin jumps to that pane
@@ -157,10 +165,13 @@ It reads the `session` table and uses fields like:
 - `time_archived`
 - `agent`
 - `model`
+- `parent_id`
 
 ### Merge strategy
 
 Live tmux panes are matched to database sessions by working directory on a best-effort basis. If no database match is found, the pane still appears as a `tmux-only` attached entry.
+
+When a tmux pane contains an opencode child session id in its process command, the plugin maps that attached state back to the parent/root row when the database knows the parent relation.
 
 ## Status meanings
 
@@ -181,7 +192,7 @@ Live tmux panes are matched to database sessions by working directory on a best-
 The list script prints tab-separated records with normalized fields:
 
 ```text
-source  session_id  title  directory  path  status  updated_epoch  age_minutes  attached  pane_id  window_id  tmux_session_id  agent  model  archived
+source  session_id  title  directory  path  status  updated_epoch  age_minutes  attached  pane_id  window_id  tmux_session_id  agent  model  archived  parent_id  child_count  child_status_summary  root_session_id
 ```
 
 ## Validation
