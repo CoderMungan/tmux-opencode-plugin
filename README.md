@@ -47,7 +47,7 @@ Install with `prefix + I`.
 ## Manual install
 
 ```tmux
-run-shell '/absolute/path/to/tmux-opencode-plugin/opencode.tmux'
+source-file '/absolute/path/to/tmux-opencode-plugin/opencode.tmux'
 ```
 
 ## Status line integration

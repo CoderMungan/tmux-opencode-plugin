@@ -1,28 +1,11 @@
-#!/usr/bin/env bash
+if-shell -F '#{==:#{@opencode-key},}' 'set-option -gq @opencode-key O'
+if-shell -F '#{==:#{@opencode-status-position},}' 'set-option -gq @opencode-status-position right'
+if-shell -F '#{==:#{@opencode-popup-width},}' 'set-option -gq @opencode-popup-width 90%'
+if-shell -F '#{==:#{@opencode-popup-height},}' 'set-option -gq @opencode-popup-height 80%'
+if-shell -F '#{==:#{@opencode-stale-minutes},}' 'set-option -gq @opencode-stale-minutes 240'
+if-shell -F '#{==:#{@opencode-show-archived},}' 'set-option -gq @opencode-show-archived false'
+if-shell -F '#{==:#{@opencode-max-sessions},}' 'set-option -gq @opencode-max-sessions 50'
+if-shell -F '#{==:#{@opencode-resume-target},}' 'set-option -gq @opencode-resume-target window'
+if-shell -F '#{==:#{@opencode-status-colors},}' 'set-option -gq @opencode-status-colors true'
 
-PLUGIN_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
-
-set_default_option() {
-  local key="$1" value="$2" current
-  current="$(tmux show-option -gqv "$key" 2>/dev/null || true)"
-  if [ -z "$current" ]; then
-    tmux set-option -gq "$key" "$value"
-  fi
-}
-
-set_default_option @opencode-key "${OPENCODE_TMUX_KEY:-O}"
-set_default_option @opencode-status-position "${OPENCODE_STATUS_POSITION:-right}"
-set_default_option @opencode-popup-width "${OPENCODE_POPUP_WIDTH:-90%}"
-set_default_option @opencode-popup-height "${OPENCODE_POPUP_HEIGHT:-80%}"
-set_default_option @opencode-stale-minutes "${OPENCODE_STALE_MINUTES:-240}"
-set_default_option @opencode-show-archived "${OPENCODE_SHOW_ARCHIVED:-false}"
-set_default_option @opencode-max-sessions "${OPENCODE_MAX_SESSIONS:-50}"
-set_default_option @opencode-db-path "${OPENCODE_DB_PATH:-$HOME/.local/share/opencode/opencode.db}"
-set_default_option @opencode-resume-target "${OPENCODE_RESUME_TARGET:-window}"
-set_default_option @opencode-status-colors "${OPENCODE_STATUS_COLORS:-true}"
-
-key="$(tmux show-option -gqv @opencode-key)"
-width="$(tmux show-option -gqv @opencode-popup-width)"
-height="$(tmux show-option -gqv @opencode-popup-height)"
-
-tmux bind-key "$key" display-popup -E -w "$width" -h "$height" "$PLUGIN_DIR/scripts/popup-run.sh"
+run-shell -b "key=\$(tmux show-option -gqv @opencode-key); width=\$(tmux show-option -gqv @opencode-popup-width); height=\$(tmux show-option -gqv @opencode-popup-height); tmux unbind-key \"\$key\" 2>/dev/null; tmux bind-key \"\$key\" display-popup -E -w \"\$width\" -h \"\$height\" \"#{d:current_file}/scripts/popup-run.sh\""
